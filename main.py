@@ -1,107 +1,45 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException
-from fastapi.responses import StreamingResponse
-from PIL import Image
-import io
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+import numpy as np
+import pickle
 
 app = FastAPI()
 
-@app.post("/upload/")
-async def create_upload_file(file: UploadFile = File(...)):
-    if file.content_type.startswith('image/'):      # content_type으로 파일 형태 확인
-        # 이미지 파일 읽기
-        image_data = await file.read()      # 파일 업로드 시간 등을 고려하여 await 사용
-        image = Image.open(io.BytesIO(image_data))        # 해당 이미지 데이터 불러오기
+# ML API
+# 사이킷런(scikit-learn) 라이브러리에서 제공하는 붓꽃(iris) 데이터 세트를 사용
+# 붓꽃의 종을 예측하는 간단한 분류기를 만들고, FastAPI를 사용하여 이 모델에 접근하는 API를 구축
 
-        # 이미지를 그레이스케일로 변환
-        gray_image = image.convert('L')
+# 모델 로드
+with open("iris_model.pkl", "rb") as f:
+    model = pickle.load(f)
 
-        # 변환된 이미지를 byte로 변환
-        img_byte_arr = io.BytesIO()
-        gray_image.save(img_byte_arr, format='PNG')
-        img_byte_arr = img_byte_arr.getvalue()
+# 모델정의
+class IrisModel(BaseModel):
+    sepal_length: float   # 꽃받침의 길이
+    sepal_width: float      # 꽃받침의 너비
+    petal_length: float     # 꽃잎의 길이
+    petal_width: float      # 꽃잎의 너비
 
-        # StreamingResponse로 이미지 반환
-        return StreamingResponse(io.BytesIO(img_byte_arr), media_type="image/png")
-    else:
-        raise HTTPException(status_code=400, detail="Invalid file format.")
-
-@app.get("/")
-def read_root():
-    return {"Hello": "Lion"}
+@app.post("/predict_iris/")
+def predict_iris(iris: IrisModel):
+    data = np.array([[iris.sepal_length, iris.sepal_width, iris.petal_length, iris.petal_width]])   # 입력 값 데이터 생성
+    prediction = model.predict(data)      # 예측
+    return {"prediction": int(prediction[0])}   # 예측 결과 값 출력
 
 
+# 와인 품질 분류
+# 모델 로드
+with open("wine_model.pkl", "rb") as f:
+    model = pickle.load(f)
 
-# 문제 1: 이미지 회전 기능 추가하기
-# FastAPI 애플리케이션에 이미지를 90도 회전시키는 기능을 추가하세요.
-## a. 사용자가 이미지 파일을 업로드합니다.
-## b. 서버는 이미지를 90도 회전시킨 후 결과 이미지를 반환합니다
+# 모델정의
+class WineFeatures(BaseModel):
+    features: list
 
-@app.post("/rotate/")
-async def create_rotate_file(file: UploadFile = File(...)):
-    if file.content_type.startswith('image/'):      # content_type으로 파일 형태 확인
-        # 이미지 파일 읽기
-        image_data = await file.read()      # 파일 업로드 시간 등을 고려하여 await 사용
-        image = Image.open(io.BytesIO(image_data))        # 해당 이미지 데이터 불러오기
-
-        # 이미지를 90도 회전
-        rotate_image = image.rotate(90, expand=True)
-
-        # 변환된 이미지를 byte로 변환
-        img_byte_arr = io.BytesIO()
-        rotate_image.save(img_byte_arr, format='PNG')
-        img_byte_arr = img_byte_arr.getvalue()
-
-        # StreamingResponse로 이미지 반환
-        return StreamingResponse(io.BytesIO(img_byte_arr), media_type="image/png")
-    else:
-        raise HTTPException(status_code=400, detail="Invalid file format.")
-    
-
-#문제 2: 이미지 밝기 조절 기능 추가하기
-# 이미지의 밝기를 조절하는 기능을 API에 추가하세요.
-## a. 사용자가 이미지 파일과 함께 밝기 조절 값(예: -30, +50 등)을 제공합니다.
-## b. 서버는 제공된 값으로 이미지의 밝기를 조절하고 결과를 반환합니다.
-from PIL import ImageEnhance
-@app.post("/bright/")
-async def create_bright_file(file: UploadFile = File(...), brightness_factor: float = 2.0):
-    if file.content_type.startswith('image/'):      # content_type으로 파일 형태 확인
-        # 이미지 파일 읽기
-        image_data = await file.read()      # 파일 업로드 시간 등을 고려하여 await 사용
-        image = Image.open(io.BytesIO(image_data))        # 해당 이미지 데이터 불러오기
-
-        # 이미지 밝기 조절
-        bright = ImageEnhance.Brightness(image)     # 밝기 조절 함수에 이미지 삽입
-        bright_image = bright.enhance(brightness_factor)      # 원하는 조절 값으로 밝기 적용
-
-        # 변환된 이미지를 byte로 변환
-        img_byte_arr = io.BytesIO()
-        bright_image.save(img_byte_arr, format='PNG')
-        img_byte_arr = img_byte_arr.getvalue()
-
-        # StreamingResponse로 이미지 반환
-        return StreamingResponse(io.BytesIO(img_byte_arr), media_type="image/png")
-    else:
-        raise HTTPException(status_code=400, detail="Invalid file format.")
-    
-
-# 문제 3: 이미지 흑백 필터 추가하기
-# 사용자가 업로드한 이미지에 흑백 필터를 적용하는 기능을 추가하세요.
-## a. 사용자가 이미지 파일을 업로드합니다.
-## b. 서버는 이미지에 흑백 필터를 적용하고 변환된 이미지를 반환합니다.
-@app.post("/black_white/")
-async def apply_black_white_filter(file: UploadFile = File(...)):
-    if not file.content_type.startswith('image/'):
-        raise HTTPException(status_code=400, detail="Invalid file format.")
-
-    image_data = await file.read()
-    image = Image.open(io.BytesIO(image_data))
-
-    # 흑백 필터 적용
-    bw_image = image.convert('1')  # '1' for binary image with two colors
-
-    img_byte_arr = io.BytesIO()
-    bw_image.save(img_byte_arr, format='PNG')
-    img_byte_arr = img_byte_arr.getvalue()
-
-    return StreamingResponse(io.BytesIO(img_byte_arr), media_type="image/png")
-
+@app.post("/predict_wine/")
+def predict_wine_quality(wine: WineFeatures):
+    try:
+        prediction = model.predict([wine.features])      # 예측
+        return {"prediction": int(prediction[0])}   # 예측 결과 값 출력
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
